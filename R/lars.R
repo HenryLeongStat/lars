@@ -25,7 +25,7 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
   nm <- dim(x)
   n <- nm[1]
   m <- nm[2]
-  im <- inactive <- seq(m)
+  im <- inactive <- seq(m) # indices from 1 to p
   one <- rep(1, n)
   vn <- dimnames(x)[[2]]	
 ### Center x and y, and scale x, and save the means and sds
@@ -67,13 +67,13 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
       cat("Computing X'X .....\n")
     Gram <- t(x) %*% x	#Time saving
   }
-  Cvec <- drop(t(y) %*% x)
+  Cvec <- drop(t(y) %*% x) ## initialization
   ssy <- sum(y^2)	### Some initializations
-  residuals <- y
+  residuals <- y ## initialization
   if(missing(max.steps))
     max.steps <- 8*min(m, n-intercept)
   beta <- matrix(0, max.steps + 1, m)	# beta starts at 0
-  lambda=double(max.steps)
+  lambda=double(max.steps) # ?
   Gamrat <- NULL
   arc.length <- NULL
   R2 <- 1
@@ -91,20 +91,20 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
   while((k < max.steps) & (length(active) < min(m - length(ignores),n-intercept)) )
     {
       action <- NULL
-      C <- Cvec[inactive]	#
+      C <- Cvec[inactive]	# 2.8
 ### identify the largest nonactive gradient
-      Cmax <- max(abs(C))
+      Cmax <- max(abs(C)) # 2.9
       if(Cmax<eps*100){ # the 100 is there as a safety net
         if(trace)cat("Max |corr| = 0; exiting...\n")
         break
       }
       k <- k + 1
-      lambda[k]=Cmax
+      lambda[k]=Cmax # save the max C from each step
 ### Check if we are in a DROP situation
-      if(!any(drops)) {
-        new <- abs(C) >= Cmax - eps
-        C <- C[!new]	# for later
-        new <- inactive[new]	# Get index numbers
+      if(!any(drops)) { # ?
+        new <- abs(C) >= Cmax - eps # see how many correlations are effectively equal to the max one
+        C <- C[!new]	# for later, # remove the ones meeting the above critieria
+        new <- inactive[new]	# Get index numbers, # get the ones got removed
 ### We keep the choleski R  of X[,active] (in the order they enter)
         for(inew in new) {
           if(use.Gram) {
@@ -129,8 +129,8 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
           else {
             if(first.in[inew] == 0)
               first.in[inew] <- k
-            active <- c(active, inew)
-            Sign <- c(Sign, sign(Cvec[inew]))
+            active <- c(active, inew) # 
+            Sign <- c(Sign, sign(Cvec[inew])) # get the sign from the correlation vector
             action <- c(action, inew)
             if(trace)
               cat("LARS Step", k, ":\t Variable", inew, 
@@ -138,7 +138,7 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
           }
         }
       }
-      else action <-  - dropid
+      else action <-  - dropid # corresponding to if(!any(drops))
       Gi1 <- backsolve(R, backsolvet(R, Sign))	
 ### Now we have to do the forward.stagewise dance
 ### This is equivalent to NNLS
