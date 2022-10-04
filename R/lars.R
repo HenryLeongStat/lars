@@ -29,9 +29,10 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
   one <- rep(1, n)
   vn <- dimnames(x)[[2]]	
 ### Center x and y, and scale x, and save the means and sds
+  # never deal with intercept!
   if(intercept){
     meanx <- drop(one %*% x)/n
-    x <- scale(x, meanx, FALSE)	# centers x
+    x <- scale(x, meanx, FALSE)	# centers x to remove intercept
     mu <- mean(y)
     y <- drop(y - mu)
   }
@@ -71,23 +72,24 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
   ssy <- sum(y^2)	### Some initializations
   residuals <- y ## initialization
   if(missing(max.steps))
-    max.steps <- 8*min(m, n-intercept)
-  beta <- matrix(0, max.steps + 1, m)	# beta starts at 0
-  lambda=double(max.steps) # ?
+    max.steps <- 8*min(m, n-intercept) # intercept is logical
+  beta <- matrix(0, max.steps + 1, m)	# beta starts at 0 # last one is the lm fit
+  lambda=double(max.steps) # a vector for saving the lambda at each step
   Gamrat <- NULL
-  arc.length <- NULL
+  arc.length <- NULL # save all gamma_hat
   R2 <- 1
   RSS <- ssy
-  first.in <- integer(m)
+  first.in <- integer(m) # a m-vector of integer, the step of the corresponding variable to be first time in the model
   active <- NULL	# maintains active set
   actions <- as.list(seq(max.steps))	
                                         # a signed index list to show what comes in and out
   drops <- FALSE	# to do with type=="lasso" or "forward.stagewise"
-  Sign <- NULL	# Keeps the sign of the terms in the model
-  R <- NULL	###
+  Sign <- NULL	# Keeps the sign of the terms in the model, # 2.10
+  R <- NULL	### choleski R  of X[,active] 
 ### Now the main loop over moves
 ###
   k <- 0
+  # when entering the loop, active is null, => length=0
   while((k < max.steps) & (length(active) < min(m - length(ignores),n-intercept)) )
     {
       action <- NULL
@@ -101,10 +103,12 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
       k <- k + 1
       lambda[k]=Cmax # save the max C from each step
 ### Check if we are in a DROP situation
-      if(!any(drops)) { # ?
+      if(!any(drops)) { # when without drops for all
         new <- abs(C) >= Cmax - eps # see how many correlations are effectively equal to the max one
         C <- C[!new]	# for later, # remove the ones meeting the above critieria
-        new <- inactive[new]	# Get index numbers, # get the ones got removed
+        new <- inactive[new]	# Get index numbers, # get the ones got removed above
+        # => new is the set that the correlation of which are effectively equal to the max one
+        # and the elements of this set will be added in this step
 ### We keep the choleski R  of X[,active] (in the order they enter)
         for(inew in new) {
           if(use.Gram) {
@@ -129,17 +133,19 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
           else {
             if(first.in[inew] == 0)
               first.in[inew] <- k
-            active <- c(active, inew) # 
-            Sign <- c(Sign, sign(Cvec[inew])) # get the sign from the correlation vector
-            action <- c(action, inew)
+            active <- c(active, inew) # add the new variable to the active set
+            Sign <- c(Sign, sign(Cvec[inew])) # 2.10 # get the sign from the correlation vector
+            action <- c(action, inew) # add the new variable in the current action set in the loop, it gets empty every iteration
             if(trace)
               cat("LARS Step", k, ":\t Variable", inew, 
                   "\tadded\n")	#
           }
         }
       }
+      # end of if(!any(drops))
       else action <-  - dropid # corresponding to if(!any(drops))
-      Gi1 <- backsolve(R, backsolvet(R, Sign))	
+      # if there are any drops, then the action set will be the drop elements
+      Gi1 <- backsolve(R, backsolvet(R, Sign)) # 2.5 Gi%*%one
 ### Now we have to do the forward.stagewise dance
 ### This is equivalent to NNLS
       dropouts<-NULL
@@ -166,9 +172,10 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
           C <- Cvec[ - c(active, ignores)]
         }
       }
-      A <- 1/sqrt(sum(Gi1 * Sign))
-      w <- A * Gi1	# note that w has the right signs
-      if(!use.Gram) u <- drop(x[, active, drop = FALSE] %*% w)	###
+      # end of forward.stagewise
+      A <- 1/sqrt(sum(Gi1 * Sign)) # 2.5
+      w <- A * Gi1	# 2.6 # note that w has the right signs
+      if(!use.Gram) u <- drop(x[, active, drop = FALSE] %*% w) # 2.6	###
 ### Now we see how far we go along this direction before the
 ### next competitor arrives. There are several cases
 ###
@@ -181,11 +188,11 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
           a <- drop(w %*% Gram[active,  - c(active,ignores), drop = FALSE])
         }
         else {
-          a <- drop(u %*% x[,  - c(active, ignores), drop=FALSE])
+          a <- drop(u %*% x[,  - c(active, ignores), drop=FALSE]) # 2.11
         }
-        gam <- c((Cmax - C)/(A - a), (Cmax + C)/(A + a))	
+        gam <- c((Cmax - C)/(A - a), (Cmax + C)/(A + a)) # 2.13
 ### Any dropouts will have gam=0, which are ignored here
-        gamhat <- min(min(gam[gam > eps],na.rm=TRUE), Cmax/A)	
+        gamhat <- min(min(gam[gam > eps],na.rm=TRUE), Cmax/A)	# 2.13
       }
       if(type == "lasso") {
         dropid <- NULL
@@ -198,16 +205,16 @@ function(x, y, type = c("lasso", "lar", "forward.stagewise","stepwise"), trace =
         }
         else drops <- FALSE
       }
-      beta[k + 1,  ] <- beta[k,  ]
-      beta[k + 1, active] <- beta[k + 1, active] + gamhat * w
+      beta[k + 1,  ] <- beta[k,  ] # keeping all the beta for the next step
+      beta[k + 1, active] <- beta[k + 1, active] + gamhat * w # inside 2.12, for each beta of the mu
       if(use.Gram) {
         Cvec <- Cvec - gamhat * Gram[, active, drop = FALSE] %*% w
       }
       else {
-        residuals <- residuals - gamhat * u
-        Cvec <- drop(t(residuals) %*% x)
+        residuals <- residuals - gamhat * u # paragraph of 2.3
+        Cvec <- drop(t(residuals) %*% x) # 2.8
       }
-      Gamrat <- c(Gamrat, gamhat/(Cmax/A))
+      Gamrat <- c(Gamrat, gamhat/(Cmax/A)) # 2.21 + 2.22
       arc.length <- c(arc.length, gamhat)	
 ### Check if we have to drop any guys
       if(type == "lasso" && any(drops)) {

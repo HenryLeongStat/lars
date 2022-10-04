@@ -10,7 +10,7 @@ function(xnew, R = NULL, xold, eps = .Machine$double.eps, Gram = FALSE)
     return(R)
   }
   Xtx <- if(Gram) xold else drop(t(xnew) %*% xold)
-  r <- backsolvet(R, Xtx)
+  r <- backsolvet(R, Xtx) # R'y=Xtx, get y
   rpp <- norm.xnew^2 - sum(r^2)
   rank <- attr(R, "rank")	### check if R is machine singular
   if(rpp <= eps)
